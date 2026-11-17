@@ -1,0 +1,35 @@
+name: validate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 校验 agent 文件结构
+        run: |
+          set -e
+          fail=0
+          for f in *.md; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f" .md)
+            head -1 "$f" | grep -q '^---$' || { echo "::error::$f 缺少 frontmatter（第一行必须是 ---）"; fail=1; continue; }
+            for key in name description tools model; do
+              awk '/^---$/{n++;next} n==1 && /^'"$key"':/' "$f" | grep -q . || { echo "::error::$f frontmatter 缺少 $key"; fail=1; }
+            done
+            fname=$(awk '/^---$/{n++;next} n==1 && /^name:/{sub(/^name:[ ]*/,"");print;exit}' "$f")
+            [ "$fname" = "$base" ] || { echo "::error::$f frontmatter name($fname) 与文件名($base) 不一致"; fail=1; }
+            grep -q '^## .*红线' "$f" || { echo "::error::$f 缺少红线章节"; fail=1; }
+            for other in Joma Tas Deise Dave; do
+              [ "$other" = "$base" ] && continue
+              grep -q "$other" "$f" || { echo "::error::$f 未提及协作成员 $other（协作链不能断）"; fail=1; }
+            done
+          done
+          [ -f .github/pull_request_template.md ] || { echo "::error::缺少 .github/pull_request_template.md"; fail=1; }
+          [ $fail -eq 0 ] && echo "全部通过：frontmatter 完整、红线章节齐全、四人协作链完整、PR 模板在位"
+          exit $fail
